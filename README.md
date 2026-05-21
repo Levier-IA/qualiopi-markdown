@@ -63,9 +63,15 @@ Ce dépôt est un outil communautaire. **Seul le PDF officiel du Ministère du T
 - **Licence du contenu** : [Licence Ouverte / Open Licence 2.0 (Etalab)](https://www.etalab.gouv.fr/licence-ouverte-open-licence) — conforme à la réutilisation des informations publiques françaises (article L. 321-2 du CRPA).
 - **Logo Qualiopi** : son usage est strictement réservé aux organismes effectivement certifiés (arrêté du 4 juin 2021). Il n'est ni inclus ni distribué dans ce dépôt.
 
-## 🐛 Particularités du PDF officiel conservées
+## 🐛 Particularités du PDF officiel — nettoyages éditoriaux
 
-Par fidélité au document source, deux paragraphes parasites de l'**Indicateur 23** (calques résiduels d'un autre indicateur visibles dans le PDF officiel) ont été conservés tels quels. Si vous indexez le contenu pour un RAG, vous pouvez les retirer manuellement dans `indicateurs/23-veille-legale-reglementaire.md`.
+Le PDF officiel du Ministère contient à certains endroits des **calques résiduels** : du texte d'un indicateur réapparaît sur la fiche d'un autre indicateur. Ce sont des bugs de mise en page du document source, invisibles à l'œil nu mais extraits par toute conversion automatique.
+
+Quand une telle pollution a été détectée, elle a été **retirée manuellement** et le fichier concerné porte un champ `editorial_note` dans son front-matter YAML pour le signaler explicitement :
+
+- `indicateurs/23-veille-legale-reglementaire.md` — 2 paragraphes parasites de l'indicateur 5 retirés.
+
+Le mécanisme est documenté dans `_scripts/split_indicators.py` (dict `EDITORIAL_NOTES`).
 
 ---
 

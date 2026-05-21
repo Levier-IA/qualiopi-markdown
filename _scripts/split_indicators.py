@@ -58,6 +58,16 @@ NOUVEAUX_ENTRANTS = {2, 3, 11, 13, 14, 19, 22, 24, 25, 26, 32}
 
 SOURCE_NOTE = "Guide de lecture du Référentiel national qualité — V9 du 8 janvier 2024, DGEFP, Ministère du Travail."
 
+# Per-indicator editorial notes for known divergences from the raw PDF extraction.
+# Used in the YAML front-matter so consumers know the file isn't a 1:1 OCR dump.
+EDITORIAL_NOTES = {
+    23: (
+        "Deux paragraphes parasites présents dans le PDF officiel (calque "
+        "résiduel reproduisant du contenu de l'indicateur 5) ont été retirés "
+        "manuellement pour ne pas polluer un index RAG."
+    ),
+}
+
 # --- parsing --------------------------------------------------------------
 
 def parse_complete_md(text: str):
@@ -143,9 +153,10 @@ def render_file(meta: dict, sections: dict) -> str:
         f"nouveaux_entrants: {nouveaux_entrants}",
         f'sous_traitance: {"applicable" if has_sous_traitance else "non concerne"}',
         f'source: "{SOURCE_NOTE}"',
-        "---",
-        "",
     ]
+    if n in EDITORIAL_NOTES:
+        front.append(f'editorial_note: "{EDITORIAL_NOTES[n]}"')
+    front.extend(["---", ""])
 
     out = front[:]
     out.append(f"# Indicateur {n}")
