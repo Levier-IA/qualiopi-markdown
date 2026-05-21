@@ -1,20 +1,72 @@
-# 🎯 Référentiel National Qualité (Qualiopi V9) en format Markdown (.md)
+# 🎯 Référentiel National Qualité (Qualiopi V9) en Markdown
 
-Bienvenue dans ce dépôt mis à disposition par **Levier IA**, le centre de formation "AI-first".
+Conversion open source du **Guide de lecture du Référentiel national qualité — Version 9 du 8 janvier 2024** (Ministère du Travail / DGEFP) en Markdown propre, structuré et prêt à indexer.
 
-Pour faciliter la gestion documentaire des Organismes de Formation (OF) et permettre l'intégration des règles de conformité dans les outils modernes, nous avons converti et nettoyé l'intégralité du **Guide de lecture Qualiopi (Version 9 du 08/01/2024)** au format Markdown.
+Maintenu par **[Levier IA](https://levier-ia.fr/)**, le centre de formation "AI-first".
 
-## 🛠️ Pourquoi ce dépôt ?
-Le format PDF officiel est rigide. Le format Markdown (`.md`) est universel, léger et structuré. Ce dépôt vous permet de :
-1. **L'intégrer partout :** Importez directement les indicateurs dans vos wikis internes, Notion, Obsidian, ClickUp, etc.
-2. **L'interroger avec l'IA :** Le format idéal (propre et découpé) pour indexer le référentiel dans un LLM (RAG) et créer votre propre assistant conformité.
+## 📦 Ce que contient le dépôt
 
-⚠️ **Ce n'était pas juste "appuyer sur un bouton" :** Les PDF administratifs sont complexes à convertir. Nous avons nettoyé manuellement et via nos scripts les caractères corrompus (bugs d'encodage), restructuré les tableaux d'indicateurs cassés et isolé proprement les éléments de preuve, notamment sur les règles cruciales de la **sous-traitance**.
+```
+qualiopi-markdown/
+├── guide_de_lecture_qualiopi_v9_du_8_janvier_2024.md   # Document complet en un fichier
+├── indicateurs/
+│   ├── INDEX.md                                        # Sommaire des 32 indicateurs
+│   ├── 01-information-publique.md
+│   ├── 02-indicateurs-resultats.md
+│   ├── …
+│   └── 32-mesures-amelioration.md
+└── _scripts/                                           # Pipeline Python de conversion (pymupdf)
+```
 
-## 📌 Source officielle et Avertissement
-Ce dépôt est un outil communautaire bénévole. Seul le document du Ministère du Travail fait foi légalement.
-* **Source officielle :** [Ministère du Travail - Guide de lecture Qualiopi](https://travail-emploi.gouv.fr/referentiel-national-qualite-guide-de-lecture-qualiopi)
-* **Version correspondante :** V.9 du 08/01/2024 (intégrant les spécificités liées à la sous-traitance).
+- **1 fichier global** pour la lecture humaine ou l'export.
+- **32 fichiers** (un par indicateur) avec front-matter YAML pour le RAG, l'embedding, l'indexation dans un wiki ou un assistant LLM.
+- **INDEX.md** avec liens, badges et énoncés courts.
+
+## 🤖 Pourquoi un fichier par indicateur ?
+
+Un chunk = un indicateur. Chaque fichier contient toutes les informations liées à un seul indicateur (énoncé, niveau attendu, exemples de preuves, non-conformité, obligations spécifiques, sous-traitance), avec un front-matter YAML exploitable pour le filtrage :
+
+```yaml
+---
+indicateur: 2
+critere: 1
+critere_titre: "Les conditions d'information du public…"
+slug: indicateurs-resultats
+ponderation: mineure ou majeure
+nouveaux_entrants: oui
+sous_traitance: applicable
+source: "Guide de lecture du Référentiel national qualité — V9 du 8 janvier 2024, DGEFP, Ministère du Travail."
+---
+```
+
+Ça permet de :
+1. **Indexer en RAG** : un chunk de 200-800 tokens par indicateur, sans overlap.
+2. **Filtrer par métadonnée** : « tous les indicateurs avec sous-traitance applicable », « tous les indicateurs pondérés mineure ou majeure », etc.
+3. **Citer la source** depuis le LLM avec le numéro et le titre exacts.
+
+## 🛠️ Reproduire la conversion
+
+```bash
+pip install pymupdf
+python _scripts/build_markdown.py        # PDF officiel → markdown global
+python _scripts/split_indicators.py      # markdown global → 32 fichiers + INDEX.md
+```
+
+Le PDF source n'est pas versionné ([source officielle](https://travail-emploi.gouv.fr/referentiel-national-qualite-guide-de-lecture-qualiopi)) — placez-le à la racine pour rejouer le pipeline.
+
+## ⚠️ Avertissement légal
+
+Ce dépôt est un outil communautaire. **Seul le PDF officiel du Ministère du Travail fait foi légalement.**
+
+- **Source officielle** : <https://travail-emploi.gouv.fr/referentiel-national-qualite-guide-de-lecture-qualiopi>
+- **Version** : V.9 du 08/01/2024 (intégrant les évolutions sous-traitance)
+- **Licence du contenu** : [Licence Ouverte / Open Licence 2.0 (Etalab)](https://www.etalab.gouv.fr/licence-ouverte-open-licence) — conforme à la réutilisation des informations publiques françaises (article L. 321-2 du CRPA).
+- **Logo Qualiopi** : son usage est strictement réservé aux organismes effectivement certifiés (arrêté du 4 juin 2021). Il n'est ni inclus ni distribué dans ce dépôt.
+
+## 🐛 Particularités du PDF officiel conservées
+
+Par fidélité au document source, deux paragraphes parasites de l'**Indicateur 23** (calques résiduels d'un autre indicateur visibles dans le PDF officiel) ont été conservés tels quels. Si vous indexez le contenu pour un RAG, vous pouvez les retirer manuellement dans `indicateurs/23-veille-legale-reglementaire.md`.
 
 ---
-*Proposé avec 🤖 par [Levier IA](https://levier-ia.fr/) - Accélérez vos compétences grâce à l'Intelligence Artificielle.*
+
+*Proposé par [Levier IA](https://levier-ia.fr/) — Accélérez vos compétences grâce à l'Intelligence Artificielle.*
