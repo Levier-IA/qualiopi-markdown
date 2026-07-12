@@ -4,6 +4,8 @@ Conversion open source du **Guide de lecture du Référentiel national qualité 
 
 Maintenu par **[Levier IA](https://levier-ia.fr/)**, le centre de formation "AI-first".
 
+> 🚀 **Vous voulez la même chose pour votre OF ?** [Réservez un diagnostic IA gratuit](https://cal.com/yoann-levier-ia/diagnostic-ia) — on audite votre conformité Qualiopi + AI Act en 45 min.
+
 ## 📦 Ce que contient le dépôt
 
 ```
