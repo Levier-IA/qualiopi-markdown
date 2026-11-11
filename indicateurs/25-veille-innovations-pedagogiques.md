@@ -3,15 +3,20 @@ indicateur: 25
 critere: 6
 critere_titre: "L’inscription et l’investissement du prestataire dans son environnement professionnel"
 slug: veille-innovations-pedagogiques
+type: commun
+categories: [toutes]
 ponderation: mineure ou majeure
 nouveaux_entrants: oui
 sous_traitance: non concerne
-source: "Guide de lecture du Référentiel national qualité — V9 du 8 janvier 2024, DGEFP, Ministère du Travail."
+version: V10
+source: "Guide de lecture du Référentiel national qualité — V10 de novembre 2026, DGEFP, Ministère du Travail et des Solidarités."
 ---
 
 # Indicateur 25
 
 > Critère 6 — L’inscription et l’investissement du prestataire dans son environnement professionnel
+>
+> *Indicateur commun d’appréciation*
 
 ## Énoncé
 
@@ -27,7 +32,7 @@ Veille sur les innovations pédagogiques et technologiques et documents y affér
 
 Diffusion des éléments issus de la veille au personnel du prestataire, évolutions apportées au contenu des prestations proposées, aux modalités ou aux outils pédagogiques, analyse d’opportunité et de faisabilité sur la mise en œuvre des innovations pédagogiques et technologiques.
 
-Pour les organismes qui accueillent des personnes en situation de handicap : participation à des conférences thématiques, colloques, salons, groupes de réflexions et d’analyse de pratiques en matière d’innovations pédagogiques et technologiques pour le public visé.
+Pour les organismes qui accueillent des personnes en situation de handicap : participation à des conférences thématiques, colloques, salons, groupes de réflexion et d’analyse de pratiques en matière d’innovations pédagogiques et technologiques pour le public visé.
 
 ## Non-conformité
 

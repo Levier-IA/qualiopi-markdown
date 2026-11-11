@@ -1,32 +1,76 @@
-"""Reconstruct the markdown from the official PDF, page by page, respecting columns."""
+"""Reconstruct the Markdown guide from the official V10 PDF (novembre 2026).
+
+Usage:
+    python _scripts/build_markdown.py [path/to/guide.pdf] [--debug]
+
+Layout of the V10 PDF (43 pages, A4):
+  p.1        cover
+  p.2-4      preamble (Préambule … Abréviations)
+  p.5-7      sommaire, with the full statement (énoncé) of the 33 indicators
+  p.8-40     one page per indicator (indicator N is on page N + 7)
+  p.41-42    glossary
+  p.43       back cover
+
+Each indicator page is a two-column layout:
+  - top-left  : blue "INDICATEUR COMMUN / SPECIFIQUE" box  -> RASTER IMAGE
+                (V10 additions are overlaid on it as white text)
+  - top-right : grey "NIVEAU ATTENDU" box                  -> RASTER IMAGE
+                (on some pages the body is real text overlaid on the image)
+  - below     : "EXEMPLES DE PREUVES" (left), "NON-CONFORMITÉ" and
+                "OBLIGATIONS SPÉCIFIQUES" (right), in varying vertical order
+  - bottom    : optional full-width "Sous-traitance" box
+
+Because the two boxes are images, text extraction alone cannot recover them:
+  - the énoncé is taken from the sommaire (real text, checked against the
+    décret n° 2026-728);
+  - the niveau attendu is taken from the text layer when the box contains
+    text, otherwise from the manual transcription in `raster_v10.py`.
+
+Sections are located by the position of their headings rather than by fixed
+coordinates, since the V10 pages do not share a single grid.
+"""
 import re
+import sys
+import unicodedata
+from pathlib import Path
+
 import pymupdf
 
-PDF = r"D:\sources\qualiopi-markdown\guide_de_lecture_qualiopi_v9_du_8_janvier_2024.pdf"
-OUT = r"D:\sources\qualiopi-markdown\guide_de_lecture_qualiopi_v9_du_8_janvier_2024.md"
+from raster_v10 import INDICATOR_TYPES, NIVEAU_ATTENDU_RASTER
 
-PAGE_W, PAGE_H = 596, 842
-INDICATOR_FIRST_PAGE = 7
+ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_PDF = ROOT / "guide-lecture-qualiopi-v10-nov2026.pdf"
+OUT = ROOT / "guide_de_lecture_qualiopi_v10_novembre_2026.md"
 
-# Prefixes that keep their hyphen in compound French words
-HYPHEN_PREFIXES = {
-    "non", "sous", "sur", "pré", "post", "anti", "demi", "mi", "semi",
-    "ex", "co", "ré", "néo", "auto", "multi", "ultra", "para", "inter",
-    "intra", "extra", "trans", "sur", "vice", "archi", "super", "hyper",
-    "hypo", "méga", "mini", "maxi", "micro", "macro", "pro", "pseudo",
-    "quasi", "tri", "bi", "uni",
-    # Common compound first parts (not prefixes proper)
-    "compte", "compte-", "travail", "porte", "garde", "rendez",
-    "arc", "demi", "afro", "anglo",
+N_INDICATORS = 33
+INDICATOR_PAGE_OFFSET = 7          # indicator N is on page N + 7 (1-based)
+GLOSSARY_PAGES = (41, 42)          # 1-based
+COL_SPLIT = 298                    # x separating left and right columns
+FOOTER_Y = 780                     # page numbers live below this
+
+HEADINGS = {
+    "NIVEAU ATTENDU": "niveau_attendu",
+    "EXEMPLES DE PREUVES": "preuves",
+    "NON-CONFORMITÉ": "non_conformite",
+    "OBLIGATIONS SPÉCIFIQUES": "obligations",
+    "Sous-traitance": "sous_traitance",
 }
 
-# --- text helpers -------------------------------------------------------
+# Prefixes that keep their hyphen when a compound word is split across lines
+HYPHEN_PREFIXES = {
+    "non", "sous", "sur", "pré", "post", "anti", "demi", "mi", "semi", "ex",
+    "co", "ré", "néo", "auto", "multi", "ultra", "para", "inter", "intra",
+    "extra", "trans", "vice", "archi", "super", "hyper", "hypo", "méga",
+    "mini", "maxi", "micro", "macro", "pro", "pseudo", "quasi", "tri", "bi",
+    "uni", "compte", "travail", "porte", "garde", "rendez", "arc", "afro",
+    "anglo", "socio", "enquêtes", "auto", "celui", "celle", "au",
+}
+
+# --- text helpers ---------------------------------------------------------
 
 def rewrap_paragraphs(text: str) -> str:
     """Join visual lines into paragraphs, with smart hyphenation handling."""
-    lines = [ln.rstrip() for ln in text.split("\n")]
-    paras = []
-    cur = ""
+    paras, cur = [], ""
 
     def flush():
         nonlocal cur
@@ -34,266 +78,312 @@ def rewrap_paragraphs(text: str) -> str:
             paras.append(cur.strip())
         cur = ""
 
-    for raw in lines:
+    for raw in text.split("\n"):
         line = raw.strip()
         if not line:
             flush()
             continue
-        # Bullet starts a new paragraph
-        if line.startswith(("•", "·")):
+        if line.startswith(("•", "·", "- ", "– ")) or re.match(r"^-\s", line):
             flush()
             cur = line
             continue
         if not cur:
             cur = line
             continue
-        # Sentence end + capital → new paragraph
-        last_char = cur.rstrip()[-1] if cur.rstrip() else ""
-        if last_char in ".!?…" and (line[0].isupper() or line[0].isdigit() or line[0] == "«"):
+        last = cur.rstrip()[-1]
+        legal_ref = re.search(r"\b(?:L|R|D|art)\.$", cur) and line[0].isdigit()   # "article L." / "6231-2"
+        if last in ".!?…;" and not legal_ref and (line[0].isupper() or line[0].isdigit() or line[0] == "«"):
             flush()
             cur = line
             continue
-        # Hyphen continuation
-        if cur.endswith("-") and len(cur) >= 2 and cur[-2].isalpha() and line and line[0].islower():
-            # Extract the alpha word immediately before the hyphen (ignore leading punctuation/apostrophe)
+        if cur.endswith("-") and len(cur) >= 2 and cur[-2].isalpha() and line[0].islower():
             m = re.search(r"([A-Za-zÀ-ÿ]+)-$", cur)
-            prev_word = m.group(1).lower() if m else ""
-            if prev_word in HYPHEN_PREFIXES:
-                # Keep the hyphen (compound)
-                cur = cur + line
-            else:
-                # Drop the hyphen (line-break hyphenation)
-                cur = cur[:-1] + line
+            prev = m.group(1).lower() if m else ""
+            cur = cur + line if prev in HYPHEN_PREFIXES else cur[:-1] + line
         else:
             cur = cur + " " + line
     flush()
     return "\n\n".join(paras)
 
+
 def fix_french_spacing(text: str) -> str:
     """Tidy French punctuation spacing without breaking URLs."""
     urls = []
+
     def _mask(m):
         urls.append(m.group(0))
-        return f"\x00URL{len(urls)-1}\x00"
-    text = re.sub(r"https?://\S+", _mask, text)
+        return f"\x00URL{len(urls) - 1}\x00"
 
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\s+([,.\)\]])", r"\1", text)
-    text = re.sub(r"([\(\[])\s+", r"\1", text)
-    text = re.sub(r"([^\s])([;:!\?»])", r"\1 \2", text)
-    text = re.sub(r"«\s+", "« ", text)
-
+    text = re.sub(r"(?:https?://|www\.)\S+", _mask, text)
+    text = re.sub(r"[ \t ]+", " ", text)
+    text = re.sub(r" +([,.\)\]])", r"\1", text)
+    text = re.sub(r"([\(\[]) +", r"\1", text)
+    text = re.sub(r"([^\s\-/])([;:!\?»])", r"\1 \2", text)
+    text = re.sub(r"«(?=\S)", "« ", text)
     for i, u in enumerate(urls):
         text = text.replace(f"\x00URL{i}\x00", u)
     return text.strip()
 
-def filter_phantoms(text: str) -> str:
-    """Remove paragraphs that look like clipping artefacts (single chars, tiny letters).
-    Does NOT filter short titles."""
+
+def bullets_to_lists(text: str) -> str:
+    """'• item' / '- item' paragraphs become a compact Markdown list."""
     out = []
-    paras = text.split("\n\n")
-    for p in paras:
-        p_str = p.strip()
-        if not p_str:
-            continue
-        # Strip trailing isolated single letters added by clip artifacts
-        # e.g. "...en début de formation. p" → drop " p"
-        p_str = re.sub(r"\s+[A-Za-zÀ-ÿ]\s*$", "", p_str).strip()
-        if not p_str:
-            continue
-        words = p_str.split()
-        # Single character paragraph (e.g. "p", "T")
-        if len(p_str) <= 2:
-            continue
-        # 3+ words mostly single/double letters → phantom
-        # (skip bullets and number lists — em-dash separators count as short words)
-        if len(words) > 2 and not p_str.startswith(("•", "·")):
-            short_ratio = sum(1 for w in words if len(w) <= 2) / len(words)
-            if short_ratio > 0.6:
-                continue
-        # 1-word fragment that is clearly truncated: contains hyphen and ends with 2-3 lowercase letters
-        # without being a known prefix (avoids filtering "Sous-traitance")
-        if len(words) == 1 and "-" in p_str:
-            tail = p_str.rsplit("-", 1)[-1]
-            if 1 <= len(tail) <= 3 and tail.islower() and tail not in {"là", "ci", "ou", "et"}:
-                # truncated like "Sous-tra"
-                if p_str.lower() not in {"sous-traitance", "non-conformité", "non-respect"}:
-                    continue
-        out.append(p_str)
+    for p in text.split("\n\n"):
+        m = re.match(r"^(?:•|·|-|–)\s*(.+)$", p, flags=re.DOTALL)
+        if m:
+            item = "- " + m.group(1).strip()
+            if out and out[-1].startswith("- "):
+                out[-1] += "\n" + item
+            else:
+                out.append(item)
+        else:
+            out.append(p)
     return "\n\n".join(out)
 
+
 def normalize(text: str) -> str:
+    text = unicodedata.normalize("NFC", text)
     text = rewrap_paragraphs(text)
-    text = fix_french_spacing(text)
-    text = filter_phantoms(text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text
+    text = "\n\n".join(fix_french_spacing(p) for p in text.split("\n\n"))
+    text = bullets_to_lists(text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
-# --- zone discovery -----------------------------------------------------
+# --- page model -------------------------------------------------------------
 
-def page_blocks(page):
-    """Return cleaned blocks: tuples (x0,y0,x1,y1,text). Filter out empty/decorative."""
-    raw = page.get_text("blocks")
+# Only vector fills count as occluders: the raster boxes have transparent
+# margins, so their bounding boxes overlap text that is visible on the page.
+OCCLUDERS = ("fill-path", "fill-shade")
+
+
+def page_spans(page, drop_occluded=True):
+    """Visible text spans as dicts: x0,y0,x1,y1,base,text,white,bold,title.
+
+    Built from the text trace, which carries the painting order (seqno) of
+    each span. The PDF contains "ghost" layers — leftover text from the V9
+    template painted first and then hidden under an opaque shape or image
+    painted later. A span whose centre is covered by a fill/image painted
+    after it is invisible on the page and is dropped.
+    """
+    log = page.get_bboxlog()
+    occluders = [(i, pymupdf.Rect(r)) for i, (kind, r) in enumerate(log) if kind in OCCLUDERS]
     out = []
-    for b in raw:
-        x0, y0, x1, y1, text, bno, btype = b
-        if btype != 0:
+    for tr in page.get_texttrace():
+        if tr["type"] == 3 or tr["opacity"] == 0:      # invisible render mode
             continue
-        t = text.strip()
-        if not t:
+        # split the trace span on its own line breaks (rare) by baseline
+        chars = tr["chars"]
+        text = "".join(chr(c[0]) for c in chars)
+        if not text.strip():
             continue
-        if re.fullmatch(r"[\s\|·•\-_]+", t):
-            continue
-        out.append((x0, y0, x1, y1, t))
-    return out
-
-def find_sous_traitance_y_via_words(page):
-    """Locate the 'Sous-traitance' banner using words; robust to combined blocks."""
-    # Look for 'Sous-traitance' that is roughly centered, font isolated
-    for w in page.get_text("words"):
-        x0, y0, x1, y1, text, *_ = w
-        if text == "Sous-traitance":
-            cx = (x0 + x1) / 2
-            # Must be centered (banner) — not within a paragraph
-            if abs(cx - PAGE_W / 2) < 60:
-                return y0
-    return None
-
-# --- extracting one indicator page -------------------------------------
-
-def extract_indicator(doc, page_idx):
-    page = doc[page_idx]
-    blocks = page_blocks(page)
-    y_sous = find_sous_traitance_y_via_words(page)
-    y_col_bottom = (y_sous - 20) if y_sous else 780
-
-    # Classify blocks by zone, sort by y, join.
-    top_blocks  = []
-    left_blocks = []
-    right_blocks = []
-    for b in blocks:
-        x0, y0, x1, y1, text = b
-        cx = (x0 + x1) / 2
-        if y0 > 780:
-            continue  # page number
-        if y_sous and y0 >= y_sous - 5:
-            continue  # handled separately
-        if y1 < 110:
-            top_blocks.append(b)
-        elif cx < 295 and y0 < y_col_bottom:
-            left_blocks.append(b)
-        elif cx > 305 and y0 < y_col_bottom:
-            right_blocks.append(b)
-
-    top_blocks.sort(key=lambda b: (b[1], b[0]))
-    left_blocks.sort(key=lambda b: (b[1], b[0]))
-    right_blocks.sort(key=lambda b: (b[1], b[0]))
-
-    def join_blocks(bs):
-        """Group blocks by vertical proximity; close blocks become one paragraph."""
-        if not bs:
-            return ""
-        groups = [[bs[0]]]
-        for b in bs[1:]:
-            prev_bottom = groups[-1][-1][3]
-            gap = b[1] - prev_bottom
-            if gap < 14:
-                groups[-1].append(b)
+        groups, cur = [], [chars[0]]
+        for c in chars[1:]:
+            if abs(c[2][1] - cur[-1][2][1]) > 2:
+                groups.append(cur)
+                cur = [c]
             else:
-                groups.append([b])
-        # Within a group, join with newline; across groups, blank line
-        return "\n\n".join("\n".join(b[4] for b in g) for g in groups)
-
-    top_text = join_blocks(top_blocks)
-    left_text_raw = join_blocks(left_blocks)
-    right_text_raw = join_blocks(right_blocks)
-
-    # Sous-traitance content (full-width blocks below y_sous)
-    sous_text = ""
-    if y_sous:
-        sous_blocks = [b for b in blocks
-                       if b[1] >= y_sous + 5
-                       and (b[2] - b[0]) > 350
-                       and b[1] < 780]
-        sous_blocks.sort(key=lambda b: b[1])
-        sous_text = "\n\n".join(b[4] for b in sous_blocks)
-
-    critere_title = normalize(top_text)
-    left_normalized = normalize(left_text_raw)
-    if "EXEMPLES DE PREUVES" in left_normalized:
-        niveau_left, preuves_raw = left_normalized.split("EXEMPLES DE PREUVES", 1)
-        niveau_left = niveau_left.strip()
-        # Strip any subsequent "EXEMPLES DE PREUVES" markers left by ghost layers
-        preuves = re.sub(r"\bEXEMPLES DE PREUVES\b\s*", "", preuves_raw).strip()
-    else:
-        niveau_left, preuves = "", left_normalized
-    right_parsed = split_right(normalize(right_text_raw))
-    niveau_parts = [p for p in [niveau_left, right_parsed["niveau_attendu"]] if p]
-    niveau_attendu = "\n\n".join(niveau_parts)
-    sous_traitance = normalize(sous_text)
-
-    return {
-        "critere_title": critere_title,
-        "niveau_attendu": niveau_attendu,
-        "preuves": preuves,
-        "non_conformite": right_parsed["non_conformite"],
-        "obligations": right_parsed["obligations"],
-        "sous_traitance": sous_traitance,
-    }
-
-def strip_header(text: str, header: str) -> str:
-    pattern = re.compile(rf"^\s*{re.escape(header)}\s*", flags=re.MULTILINE)
-    return pattern.sub("", text, count=1).strip()
-
-def split_right(right_text: str) -> dict:
-    out = {"niveau_attendu": "", "non_conformite": "", "obligations": ""}
-    pattern = re.compile(r"(NIVEAU ATTENDU|NON-CONFORMIT[ÉE]|OBLIGATIONS SP[ÉE]CIFIQUES)")
-    parts = pattern.split(right_text)
-    current = None
-    for i, p in enumerate(parts):
-        p_stripped = p.strip()
-        if i == 0:
-            continue
-        if pattern.fullmatch(p_stripped):
-            current = p_stripped
-            continue
-        body = p_stripped
-        if current == "NIVEAU ATTENDU":
-            out["niveau_attendu"] = body
-        elif current and current.startswith("NON-CONFORMIT"):
-            out["non_conformite"] = body
-        elif current and current.startswith("OBLIGATIONS"):
-            out["obligations"] = body
+                cur.append(c)
+        groups.append(cur)
+        r, g, b = (tr["color"] + (0, 0, 0))[:3]
+        for grp in groups:
+            t = "".join(chr(c[0]) for c in grp)
+            if not t.strip():
+                continue
+            rect = pymupdf.Rect()
+            for c in grp:
+                rect |= pymupdf.Rect(c[3])
+            centre = pymupdf.Point((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2)
+            if drop_occluded and any(i > tr["seqno"] and o.contains(centre) for i, o in occluders):
+                continue
+            out.append({
+                "x0": rect.x0, "y0": rect.y0, "x1": rect.x1, "y1": rect.y1,
+                "base": grp[0][2][1], "text": t,
+                "white": min(r, g, b) > 0.99,
+                "bold": "Bold" in tr["font"],
+                "title": abs(r - 0.184) < 0.01 and abs(b - 0.588) < 0.01,
+                "seq": tr["seqno"],
+            })
     return out
 
-# --- summary, preamble, glossary, annexe --------------------------------
 
-def extract_summary_indicators(doc) -> dict:
-    text = ""
-    for pi in range(3, 6):
-        text += "\n" + doc[pi].get_text("text")
+def rows_of(spans, tol=2.5):
+    """Group spans into visual rows (same baseline), each sorted by x."""
+    rows = []
+    for s in sorted(spans, key=lambda s: (s["base"], s["x0"])):
+        if rows and abs(rows[-1][0]["base"] - s["base"]) <= tol:
+            rows[-1].append(s)
+        else:
+            rows.append([s])
+    return [sorted(r, key=lambda s: s["x0"]) for r in rows]
+
+
+def row_text(row) -> str:
+    parts = []
+    for i, s in enumerate(row):
+        t = s["text"]
+        if i and not parts[-1].endswith(" ") and not t.startswith(" "):
+            # spans of a justified line are separated by a visible gap;
+            # spans glued together (font change mid-word) are not
+            if s["x0"] - row[i - 1]["x1"] > 1.2:
+                t = " " + t
+        parts.append(t)
+    return re.sub(r" {2,}", " ", "".join(parts)).strip()
+
+
+def rows_to_text(rows) -> str:
+    """Join rows; a vertical gap larger than ~1.5 line produces a blank line."""
+    lines, prev = [], None
+    for r in rows:
+        y0 = min(s["y0"] for s in r)
+        y1 = max(s["y1"] for s in r)
+        if prev is not None and y0 - prev[1] > 0.55 * (prev[1] - prev[0]) + 1.5:
+            lines.append("")
+        lines.append(row_text(r))
+        prev = (y0, y1)
+    return "\n".join(lines)
+
+
+def large_images(page):
+    return [pymupdf.Rect(i["bbox"]) for i in page.get_image_info()
+            if i["bbox"][2] - i["bbox"][0] > 100 and i["bbox"][3] - i["bbox"][1] > 30]
+
+
+def find_headings(spans):
+    """Return (headings, heading_span_ids). A heading is a row of bold spans
+    whose text is one of HEADINGS (spans may split a word: NON / - / CONFORMITÉ).
+    Each heading is (key, rect, full_width)."""
+    def squash(t):
+        return re.sub(r"\s+", "", unicodedata.normalize("NFC", t))
+
+    labels = {squash(k): v for k, v in HEADINGS.items()}
+    found, ids = [], set()
+
+    def scan(rows):
+        for row in rows:
+            row = [s for s in row if id(s) not in ids]
+            label = squash("".join(s["text"] for s in row))
+            if row and label in labels and all(s["bold"] for s in row):
+                rect = pymupdf.Rect()
+                for s in row:
+                    rect |= pymupdf.Rect(s["x0"], s["y0"], s["x1"], s["y1"])
+                key = labels[label]
+                # the Sous-traitance banner is either centred on the page
+                # (full-width box) or the title of a box in one column
+                full = key == "sous_traitance" and abs((rect.x0 + rect.x1) / 2 - 311) < 40
+                found.append((key, rect, full))
+                ids.update(id(s) for s in row)
+
+    # 1) centred full-width banner (straddles the column split)
+    scan([r for r in rows_of(spans)
+          if r[0]["x0"] < COL_SPLIT < r[-1]["x1"] and r[-1]["x1"] - r[0]["x0"] < 120])
+    # 2) column headings
+    for left in (True, False):
+        scan(rows_of([s for s in spans if ((s["x0"] + s["x1"]) / 2 < COL_SPLIT) == left]))
+    return sorted(found, key=lambda h: h[1].y0), ids
+
+
+def is_footer(s):
+    """The page number, in its small box at the bottom centre."""
+    return s["y0"] > FOOTER_Y and 275 < s["x0"] < 320 and s["text"].strip().isdigit()
+
+
+def extract_indicator(doc, num, debug=False):
+    page = doc[num + INDICATOR_PAGE_OFFSET - 1]
+    spans = [s for s in page_spans(page) if not is_footer(s) and not s["title"]]
+    imgs = large_images(page)
+    # Blue statement box: the large image starting in the left column;
+    # niveau attendu box: the large image starting in the right column.
+    blue = max((r for r in imgs if r.x0 < 120), key=lambda r: r.get_area())
+    niveau_box = max((r for r in imgs if r.x0 > 280), key=lambda r: r.get_area())
+
+    headings, heading_ids = find_headings(spans)
+    keys = [k for k, _, _ in headings]
+    assert len(keys) == len(set(keys)), f"indicateur {num}: duplicated headings {keys}"
+    st_full = next((r for k, r, full in headings if k == "sous_traitance" and full), None)
+
+    zones = {k: [] for k in HEADINGS.values()}
+    zones["enonce_overlay"] = []
+    zones["orphan"] = []
+    for s in spans:
+        if id(s) in heading_ids:
+            continue
+        cx = (s["x0"] + s["x1"]) / 2
+        if st_full is not None and s["y0"] > st_full.y1:
+            zones["sous_traitance"].append(s)
+            continue
+        if blue.contains(pymupdf.Point(cx, (s["y0"] + s["y1"]) / 2)) and s["white"]:
+            zones["enonce_overlay"].append(s)
+            continue
+        if niveau_box.contains(pymupdf.Point(cx, (s["y0"] + s["y1"]) / 2)):
+            zones["niveau_attendu"].append(s)
+            continue
+        left = cx < COL_SPLIT
+        # nearest heading above, in the same column
+        cands = [(k, h) for k, h, full in headings
+                 if not full and h.y0 <= s["y0"] + 1
+                 and ((h.x0 + h.x1) / 2 < COL_SPLIT) == left]
+        if not cands:
+            zones["orphan"].append(s)
+            continue
+        key = max(cands, key=lambda kh: kh[1].y0)[0]
+        if key == "niveau_attendu":
+            # text below the grey box but under its heading's column
+            zones["orphan"].append(s)
+            continue
+        zones[key].append(s)
+
+    out = {k: normalize(rows_to_text(rows_of(v))) for k, v in zones.items()}
+    if not out["niveau_attendu"]:
+        out["niveau_attendu"] = NIVEAU_ATTENDU_RASTER[num]
+        out["_niveau_source"] = "raster"
+    else:
+        out["_niveau_source"] = "text"
+    # Text in the left column between the statement box and "EXEMPLES DE
+    # PREUVES" is a scope note printed under the statement (indicator 12).
+    out["precision"] = out.pop("orphan")
+    if debug:
+        print(f"\n######## Indicateur {num} (page {num + INDICATOR_PAGE_OFFSET})")
+        for k, v in out.items():
+            print(f"--- {k}:\n{v}")
+    return out
+
+# --- sommaire / preamble / glossary ---------------------------------------
+
+CRITERES = [
+    (1, "Les conditions d’information du public sur les prestations proposées, les délais pour y accéder et les résultats obtenus", [1, 2, 3]),
+    (2, "L’identification précise des objectifs des prestations proposées et l’adaptation de ces prestations aux publics bénéficiaires lors de la conception des prestations", [4, 5, 6, 7, 8]),
+    (3, "L’adaptation aux publics bénéficiaires des prestations et des modalités d’accueil, d’accompagnement, de suivi et d’évaluation mises en œuvre", [9, 10, 11, 12, 13, 14, 15, 16]),
+    (4, "L’adéquation des moyens pédagogiques, techniques et d’encadrement aux prestations mises en œuvre", [17, 18, 19, 20]),
+    (5, "La qualification et le développement des connaissances et compétences des personnels chargés de mettre en œuvre les prestations", [21, 22]),
+    (6, "L’inscription et l’investissement du prestataire dans son environnement professionnel", [23, 24, 25, 26, 27, 28, 29]),
+    (7, "Le recueil et la prise en compte des appréciations et des réclamations formulées par les parties prenantes aux prestations délivrées", [30, 31, 32, 33]),
+]
+
+
+def extract_statements(doc) -> dict:
+    """Full énoncé of each indicator, from the sommaire (pages 5-7)."""
+    text = "\n".join(doc[i].get_text("text") for i in range(4, 7))
+    text = re.sub(r"^\s*\d{1,2}\s*$", "", text, flags=re.MULTILINE)   # page numbers
+    text = re.sub(r"^\s*Sommaire\s*$", "", text, flags=re.MULTILINE)
     pattern = re.compile(
-        r"(?P<num>\d{1,2})\.\s+(?P<body>.+?)(?=\n\s*(?:\d{1,2}\.|Critère|Glossaire|Annexe|$))",
-        flags=re.DOTALL,
+        r"^\s*(?P<num>\d{1,2})\.\s*(?P<body>.+?)(?=^\s*\d{1,2}\.\s|^\s*Critère|^\s*Glossaire|\Z)",
+        flags=re.DOTALL | re.MULTILINE,
     )
-    indicators = {}
+    out = {}
     for m in pattern.finditer(text):
         n = int(m.group("num"))
-        if 1 <= n <= 32:
-            body = m.group("body").replace("\n", " ")
-            body = re.sub(r"\.{2,}.*$", "", body).strip()
-            body = re.sub(r"\s+", " ", body).strip()
-            # Strip trailing page numbers (1-2 digit isolated tokens after the period)
-            body = re.sub(r"\.\s*\d{1,2}\s*$", ".", body)
-            # Fix line-break hyphenation patterns ('celui- ci' → 'celui-ci', etc.)
-            body = re.sub(r"\b(cel(?:ui|le|les|ux))-\s+(ci|là)\b", r"\1-\2", body)
-            body = re.sub(r"\b(rendez)-\s+(vous)\b", r"\1-\2", body)
-            body = fix_french_spacing(body)
-            indicators[n] = body
-    return indicators
+        if not 1 <= n <= N_INDICATORS:
+            continue
+        body = " ".join(ln.strip() for ln in m.group("body").splitlines() if ln.strip())
+        body = re.sub(r"\s*\.{3,}\s*\d+\s*$", "", body)
+        body = re.sub(r"(\w)- (\w)", lambda mm: mm.group(1) + "-" + mm.group(2)
+                      if mm.group(0)[:-2].lower().endswith(("celui", "celle")) else mm.group(0), body)
+        body = re.sub(r"\b(celui|celle)-\s+(ci|là)\b", r"\1-\2", body)
+        body = body.replace("'", "’")
+        out[n] = fix_french_spacing(body)
+    return out
+
 
 PREAMBLE_SECTION_TITLES = [
-    "Préambule",
     "Organisation du guide",
     "Conduite de l’audit",
     "Indicateurs applicables",
@@ -303,202 +393,183 @@ PREAMBLE_SECTION_TITLES = [
     "Abréviations",
 ]
 
-def extract_preamble(doc) -> dict:
-    """Pages 1-4 (preamble + 'Pondération' + 'Abréviations'), stopping before the Sommaire."""
-    parts = []
-    for pi in range(0, 4):
-        parts.append(doc[pi].get_text("text"))
-    full = "\n".join(parts)
-    full = re.sub(r"^\s*\d{1,2}\s*$", "", full, flags=re.MULTILINE)
-    # Skip cover lockup
-    m = re.search(r"La certification qualité.*", full, flags=re.DOTALL)
-    if m:
-        full = m.group(0)
-    # Stop at the start of the table of contents ("Sommaire")
-    end_m = re.search(r"\n\s*Sommaire\b", full)
-    if end_m:
-        full = full[:end_m.start()]
-    normalized = normalize(full)
 
-    # Some titles (e.g. "Abréviations") have no blank line after them in the
-    # PDF and got merged with the next paragraph. Split them back out.
-    paragraphs = normalized.split("\n\n")
-    refined = []
-    for p in paragraphs:
-        p_str = p.strip()
-        if not p_str:
-            continue
-        matched = False
-        for title in PREAMBLE_SECTION_TITLES:
-            if p_str == title:
-                refined.append(title)
-                matched = True
-                break
-            if p_str.startswith(title) and len(p_str) > len(title):
-                # Title followed by content on the same paragraph
-                rest = p_str[len(title):].lstrip(" : ")
-                refined.append(title)
-                if rest:
-                    refined.append(rest)
-                matched = True
-                break
-        if not matched:
-            refined.append(p_str)
-
-    sections = {"_intro": []}
-    current = "_intro"
-    titles_set = set(PREAMBLE_SECTION_TITLES)
-    for p in refined:
-        if p in titles_set:
-            current = p
-            sections.setdefault(current, [])
+def extract_preamble(doc):
+    raw = "\n".join(doc[i].get_text("text") for i in range(1, 4))
+    raw = re.sub(r"^\s*\d{1,2}\s*$", "", raw, flags=re.MULTILINE)
+    raw = re.sub(r"^\s*e?\s*Préambule\s*$", "", raw, flags=re.MULTILINE)
+    # Footnote 1 (bottom of page 2) -> keep it apart, then re-attach as a note
+    foot = re.search(r"^\s*1 (Indicateurs mentionnés en annexe.+?)$", raw, flags=re.MULTILINE)
+    footnote = foot.group(1).strip() if foot else ""
+    if foot:
+        raw = raw[:foot.start()] + raw[foot.end():]
+    raw = raw.replace("code du travail1.", "code du travail[^1].")
+    # Abbreviations: one per line, keep them as a list
+    abbr_m = re.search(r"Abréviations\s*\n(.+)$", raw, flags=re.DOTALL)
+    abbrs = []
+    if abbr_m:
+        abbrs = [ln.strip() for ln in abbr_m.group(1).splitlines() if ln.strip()]
+        raw = raw[:abbr_m.start()]
+    # Bullet list in "Organisation du guide": '•' alone on its line
+    raw = re.sub(r"^\s*•\s*\n\s*", "• ", raw, flags=re.MULTILINE)
+    # Section titles stand on their own lines: force blank lines around them
+    for t in PREAMBLE_SECTION_TITLES[:-1]:
+        raw = re.sub(rf"^\s*{re.escape(t)}\s*$", f"\n\n@@{t}@@\n\n", raw, flags=re.MULTILINE)
+    # The "Ce document pourra être complété" line is a separate paragraph
+    raw = raw.replace("Ce document pourra", "\n\nCe document pourra")
+    text = normalize(raw)
+    sections, cur = {"_intro": []}, "_intro"
+    for p in text.split("\n\n"):
+        m = re.fullmatch(r"@@(.+)@@", p.strip())
+        if m:
+            cur = m.group(1)
+            sections[cur] = []
         else:
-            sections.setdefault(current, []).append(p)
-    return sections
+            sections[cur].append(p)
+    sections["Abréviations"] = abbrs
+    return sections, footnote
 
-def render_preamble(sections) -> str:
-    parts = []
-    if sections.get("_intro"):
-        parts.append("\n\n".join(sections["_intro"]))
-    for title in PREAMBLE_SECTION_TITLES:
-        if title in sections and sections[title]:
-            parts.append(f"\n### {title}\n\n" + "\n\n".join(sections[title]))
-    return "\n\n".join(parts).strip()
+
+def render_preamble(sections, footnote) -> str:
+    out = ["\n\n".join(sections["_intro"])]
+    for t in PREAMBLE_SECTION_TITLES:
+        body = sections.get(t)
+        if not body:
+            continue
+        if t == "Abréviations":
+            out.append(f"### {t}\n\n" + "\n".join(f"- {a}" for a in body))
+            continue
+        paras = []
+        for p in body:
+            if p.startswith("•"):
+                p = "- " + p.lstrip("• ").strip()
+                if paras and paras[-1].startswith("- ") or (paras and paras[-1].endswith(":")):
+                    paras[-1] += "\n" + p
+                    continue
+            paras.append(p)
+        out.append(f"### {t}\n\n" + "\n\n".join(paras))
+    if footnote:
+        out.append(f"[^1]: {footnote}")
+    return "\n\n".join(out)
+
 
 def extract_glossary(doc) -> dict:
-    """Pages 39-40 → dict mapping 'Indicateur N' → entries.
-
-    Splitting happens BEFORE rewrap because the PDF puts no blank line
-    between 'Indicateur N' and its first definition.
-    """
-    parts = []
-    for pi in [38, 39]:
-        t = doc[pi].get_text("text")
-        t = re.sub(r"^\s*\d{1,2}\s*$", "", t, flags=re.MULTILINE)
-        t = re.sub(r"^GLOSSAIRE\s*$", "", t, flags=re.MULTILINE)
-        parts.append(t)
-    raw = "\n".join(parts)
-    # Split by 'Indicateur N' header (must be on its own line)
-    pattern = re.compile(r"^[ \t]*Indicateur (\d{1,2})[ \t]*$", flags=re.MULTILINE)
-    matches = list(pattern.finditer(raw))
+    """Glossary pages -> {indicator number: markdown body}."""
+    raw = "\n".join(doc[p - 1].get_text("text") for p in GLOSSARY_PAGES)
+    raw = re.sub(r"^\s*\d{1,2}\s*$", "", raw, flags=re.MULTILINE)
+    raw = re.sub(r"^\s*GLOSSAIRE\s*$", "", raw, flags=re.MULTILINE)
+    # '-' / '•' alone on a line introduces a list item
+    raw = re.sub(r"^\s*([-•])\s*\n\s*", r"\1 ", raw, flags=re.MULTILINE)
+    heads = list(re.finditer(r"^\s*Indicateur (\d{1,2})\s*$", raw, flags=re.MULTILINE))
     out = {}
-    if not matches:
-        return {"_": normalize(raw)}
-    for i, m in enumerate(matches):
-        num = int(m.group(1))
-        start = m.end()
-        end = matches[i+1].start() if i+1 < len(matches) else len(raw)
-        body = raw[start:end]
-        # Treat each definition (one per line, label-style) as its own paragraph
-        # by inserting a blank line before each "Label :" line.
-        lines = body.split("\n")
-        body_para = []
-        cur = ""
-        for ln in lines:
+    for i, m in enumerate(heads):
+        body = raw[m.end(): heads[i + 1].start() if i + 1 < len(heads) else len(raw)]
+        items, cur = [], ""
+        for ln in body.splitlines():
             ls = ln.strip()
             if not ls:
-                if cur:
-                    body_para.append(cur)
-                    cur = ""
                 continue
-            # New definition starts with "Word ... :" before midline? Heuristic:
-            # if line starts with an uppercase word and contains " : " in first 60 chars
-            if cur and re.match(r"^[A-ZÉÈÀ][\wéèàâêîôûç’'\- ]{0,60}\s:", ls):
-                body_para.append(cur)
+            new_item = (
+                ls.startswith(("- ", "• "))
+                or re.match(r"^[A-ZÉÈÀL][\wéèàâêîôûç’'\- ]{0,70}\s:", ls)
+                or ls.startswith("L’accompagnement")
+            )
+            if cur and new_item:
+                items.append(cur)
                 cur = ls
             else:
-                cur = cur + " " + ls if cur else ls
+                if cur.endswith("-") and ls[:1].islower():
+                    cur += ls
+                else:
+                    cur = f"{cur} {ls}" if cur else ls
         if cur:
-            body_para.append(cur)
-        # Now normalize each para (cleans hyphenation etc.)
-        cleaned = [normalize(p) for p in body_para if p.strip()]
-        out[f"Indicateur {num}"] = "\n\n".join(cleaned).strip()
+            items.append(cur)
+        rendered, in_list = [], False
+        for it in items:
+            it = fix_french_spacing(it).strip()
+            if it.startswith(("- ", "• ")):
+                it = "- " + it[2:].strip()
+                if rendered and (in_list or rendered[-1].endswith(":")):
+                    rendered[-1] += "\n" + it
+                    in_list = True
+                    continue
+            elif ":" in it[:80] and not it.startswith("L’"):
+                term, defi = it.split(":", 1)
+                it = f"**{term.strip()}** : {defi.strip()}".rstrip()
+            in_list = False
+            rendered.append(it)
+        out[int(m.group(1))] = "\n\n".join(rendered)
     return out
 
-def render_glossary(gloss: dict) -> str:
-    parts = []
-    for key in sorted(gloss.keys(), key=lambda k: int(re.search(r"\d+", k).group()) if re.search(r"\d+", k) else 0):
-        if key == "_":
-            parts.append(gloss[key])
-        else:
-            parts.append(f"\n### {key}\n\n{gloss[key]}")
-    return "\n\n".join(parts).strip()
+# --- rendering ------------------------------------------------------------
 
-def extract_annexe(doc) -> str:
-    t = doc[40].get_text("text")
-    t = re.sub(r"^\s*\d{1,2}\s*$", "", t, flags=re.MULTILINE)
-    t = re.sub(r"^\s*Annexe\s*$", "", t, flags=re.MULTILINE | re.IGNORECASE)
-    return normalize(t)
-
-# --- markdown rendering -------------------------------------------------
-
-CRITERES = [
-    (1, "Les conditions d’information du public sur les prestations proposées, les délais pour y accéder et les résultats obtenus", [1, 2, 3]),
-    (2, "L’identification précise des objectifs des prestations proposées et l’adaptation de ces prestations aux publics bénéficiaires lors de la conception des prestations", [4, 5, 6, 7, 8]),
-    (3, "L’adaptation aux publics bénéficiaires des prestations et des modalités d’accueil, d’accompagnement, de suivi et d’évaluation mises en œuvre", [9, 10, 11, 12, 13, 14, 15, 16]),
-    (4, "L’adéquation des moyens pédagogiques, techniques et d’encadrement aux prestations mises en œuvre", [17, 18, 19, 20]),
-    (5, "La qualification et le développement des connaissances et compétences des personnels chargés de mettre en œuvre les prestations", [21, 22]),
-    (6, "L’inscription et l’investissement du prestataire dans son environnement professionnel", [23, 24, 25, 26, 27, 28, 29]),
-    (7, "Le recueil et la prise en compte des appréciations et des réclamations formulées par les parties prenantes aux prestations délivrées", [30, 31, 32]),
+SECTION_TITLES = [
+    ("precision", "Précision"),
+    ("niveau_attendu", "Niveau attendu"),
+    ("preuves", "Exemples de preuves"),
+    ("non_conformite", "Non-conformité"),
+    ("obligations", "Obligations spécifiques"),
+    ("sous_traitance", "Sous-traitance"),
 ]
 
+
 def render_indicator(num, statement, data) -> str:
-    parts = [f"### Indicateur {num}", "", statement, ""]
-    if data["niveau_attendu"]:
-        parts += ["**Niveau attendu**", "", data["niveau_attendu"], ""]
-    if data["preuves"]:
-        parts += ["**Exemples de preuves**", "", data["preuves"], ""]
-    if data["non_conformite"]:
-        parts += ["**Non-conformité**", "", data["non_conformite"], ""]
-    if data["obligations"]:
-        parts += ["**Obligations spécifiques**", "", data["obligations"], ""]
-    if data["sous_traitance"]:
-        parts += ["**Sous-traitance**", "", data["sous_traitance"], ""]
+    kind, cats = INDICATOR_TYPES[num]
+    label = "Indicateur commun d’appréciation" if kind == "commun" else \
+        f"Indicateur spécifique d’appréciation ({', '.join(cats)})"
+    parts = [f"### Indicateur {num}", "", f"*{label}*", "", statement, ""]
+    for key, title in SECTION_TITLES:
+        if data.get(key):
+            parts += [f"**{title}**", "", data[key], ""]
     return "\n".join(parts)
 
+
 def main():
-    doc = pymupdf.open(PDF)
-    indicators = extract_summary_indicators(doc)
-    preamble = extract_preamble(doc)
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    debug = "--debug" in sys.argv
+    pdf = Path(args[0]) if args else DEFAULT_PDF
+    doc = pymupdf.open(pdf)
+    assert doc.page_count == 43, f"unexpected page count {doc.page_count} — not the V10 PDF?"
+
+    statements = extract_statements(doc)
+    assert sorted(statements) == list(range(1, N_INDICATORS + 1)), sorted(statements)
+    preamble, footnote = extract_preamble(doc)
     glossary = extract_glossary(doc)
-    annexe = extract_annexe(doc)
 
-    print(f"Indicators recovered: {len(indicators)}")
-    print(f"Preamble sections: {[k for k in preamble.keys() if k != '_intro']}")
-    print(f"Glossary entries: {list(glossary.keys())[:5]}...")
-
-    out = []
-    out.append("# Guide de lecture — Référentiel national qualité (Qualiopi)")
-    out.append("")
-    out.append("**Version 9 — 8 janvier 2024**")
-    out.append("")
-    out.append("> Référentiel mentionné à l'article L. 6316-3 du Code du travail.")
-    out.append("")
-    out.append("---")
-    out.append("")
-    out.append("## Préambule")
-    out.append("")
-    out.append(render_preamble(preamble))
-    out.append("")
-
-    for crit_num, title, ind_nums in CRITERES:
-        out.append(f"\n## Critère {crit_num} — {title}\n")
-        for n in ind_nums:
-            page_idx = INDICATOR_FIRST_PAGE - 1 + (n - 1)
-            data = extract_indicator(doc, page_idx)
-            stmt = indicators.get(n, "(énoncé non trouvé)")
-            out.append(render_indicator(n, stmt, data))
+    out = [
+        "# Guide de lecture — Référentiel national qualité (Qualiopi)",
+        "",
+        "**Version 10 — novembre 2026** (en vigueur au 1er novembre 2026, décret n° 2026-728 du 1er août 2026)",
+        "",
+        "> Référentiel mentionné à l'article L. 6316-3 du Code du travail.",
+        "",
+        "---",
+        "",
+        "## Préambule",
+        "",
+        render_preamble(preamble, footnote),
+        "",
+    ]
+    report = []
+    for crit, title, nums in CRITERES:
+        out.append(f"\n## Critère {crit} — {title}\n")
+        for n in nums:
+            data = extract_indicator(doc, n, debug=debug)
+            report.append((n, data["_niveau_source"], data["precision"]))
+            out.append(render_indicator(n, statements[n], data))
 
     out.append("\n## Glossaire\n")
-    out.append(render_glossary(glossary))
-    out.append("\n## Annexe — Modalités d'audit aménagées (article 10)\n")
-    out.append(annexe)
-    out.append("\n---\n")
-    out.append("*Source : Ministère du Travail, du Plein emploi et de l'Insertion, DGEFP — janvier 2024.*\n")
+    for n in sorted(glossary):
+        out.append(f"### Indicateur {n}\n\n{glossary[n]}\n")
+    out.append("---\n")
+    out.append("*Source : Ministère du Travail et des Solidarités, DGEFP — novembre 2026.*\n")
 
-    with open(OUT, "w", encoding="utf-8") as f:
-        f.write("\n".join(out))
+    OUT.write_text("\n".join(out), encoding="utf-8")
     print(f"Wrote {OUT}")
+    for n, src, orphan in report:
+        flag = f"  ORPHAN TEXT: {orphan[:80]!r}" if orphan else ""
+        print(f"  indicateur {n:2d}: niveau attendu from {src}{flag}")
+
 
 if __name__ == "__main__":
     main()

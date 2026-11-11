@@ -3,16 +3,21 @@ indicateur: 23
 critere: 6
 critere_titre: "L’inscription et l’investissement du prestataire dans son environnement professionnel"
 slug: veille-legale-reglementaire
+type: commun
+categories: [toutes]
 ponderation: mineure ou majeure
 nouveaux_entrants: non
 sous_traitance: non concerne
-source: "Guide de lecture du Référentiel national qualité — V9 du 8 janvier 2024, DGEFP, Ministère du Travail."
-editorial_note: "Deux paragraphes parasites présents dans le PDF officiel (calque résiduel reproduisant du contenu de l'indicateur 5) ont été retirés manuellement pour ne pas polluer un index RAG."
+version: V10
+source: "Guide de lecture du Référentiel national qualité — V10 de novembre 2026, DGEFP, Ministère du Travail et des Solidarités."
+editorial_note: "Le PDF officiel contient sous les exemples de preuves un calque masqué reproduisant du contenu de l'indicateur 5 ; il est invisible à l'écran et a été exclu de la conversion."
 ---
 
 # Indicateur 23
 
 > Critère 6 — L’inscription et l’investissement du prestataire dans son environnement professionnel
+>
+> *Indicateur commun d’appréciation*
 
 ## Énoncé
 
@@ -30,8 +35,14 @@ Actualisation des supports d’information (publicité) ou de contractualisation
 
 Consultation, analyse, diffusion au personnel de la documentation diffusée sur les sites institutionnels (ex : pages relatives à la formation professionnelle, l’apprentissage, la VAE et les bilans de compétences sur le site www.travail-emploi.gouv.fr ; portail d’information des organismes de formation de la Caisse des dépôts et consignations).
 
-Exemples de preuves pour la VAE : documentation à jour sur le cadre légal du droit individuel à la VAE et de ses modalités de financement.
+VAE : documentation à jour sur le cadre légal du droit individuel à la VAE et de ses modalités de financement.
 
 ## Non-conformité
 
 Dans l’échantillon audité, une non-conformité mineure est caractérisée par l’absence d’exploitation de la veille mise en place.
+
+Dans l’échantillon audité, le non-respect de l’obligation spécifique entraîne une non-conformité majeure.
+
+## Obligations spécifiques
+
+Vérification du dépôt formel des comptes selon les obligations des articles L. 232-21 et suivants du code de commerce, si applicable.
