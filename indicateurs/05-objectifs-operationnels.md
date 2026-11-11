@@ -3,25 +3,34 @@ indicateur: 5
 critere: 2
 critere_titre: "L’identification précise des objectifs des prestations proposées et l’adaptation de ces prestations aux publics bénéficiaires lors de la conception des prestations"
 slug: objectifs-operationnels
+type: commun
+categories: [toutes]
 ponderation: majeure uniquement
 nouveaux_entrants: non
 sous_traitance: applicable
-source: "Guide de lecture du Référentiel national qualité — V9 du 8 janvier 2024, DGEFP, Ministère du Travail."
+version: V10
+source: "Guide de lecture du Référentiel national qualité — V10 de novembre 2026, DGEFP, Ministère du Travail et des Solidarités."
 ---
 
 # Indicateur 5
 
 > Critère 2 — L’identification précise des objectifs des prestations proposées et l’adaptation de ces prestations aux publics bénéficiaires lors de la conception des prestations
+>
+> *Indicateur commun d’appréciation*
 
 ## Énoncé
 
 Le prestataire définit les objectifs opérationnels et évaluables de la prestation.
 
+## Niveau attendu
+
+Démontrer que les objectifs spécifiques à la prestation ont été définis et peuvent faire l’objet d’une évaluation.
+
 ## Exemples de preuves
 
 Tous supports et outils d’analyse, existence d’indicateurs de suivi et de résultats, supports de contractualisation, identification des compétences visées par la prestation, des objectifs pédagogiques intermédiaires et finaux, référentiel de la certification.
 
-Exemples de preuves pour la VAE : fiches de travail formalisant le cadre de travail avec le bénéficiaire, programme de travail avec durées prévues, entretiens avec accompagnateurs.
+VAE : fiches de travail formalisant le cadre de travail avec le bénéficiaire, programme de travail avec durées prévues, entretiens avec accompagnateurs.
 
 ## Non-conformité
 
@@ -37,8 +46,10 @@ VAE : l’accompagnement est contractualisé et énonce les engagements respecti
 
 Pour les formations certifiantes : les objectifs doivent être conformes aux objectifs fixés par la certification inscrite au RNCP/RS.
 
-Sous-traitance
-
 ## Sous-traitance
 
 Lorsque la prestation échantillonnée est une prestation pour laquelle l’organisme intervient en sous-traitance : le prestataire démontre qu’il tient compte des objectifs définis par le donneur d’ordres.
+
+## Glossaire
+
+**Objectifs opérationnels et évaluables** : objectifs identifiés de la prestation, à court et/ou moyen-terme, observables et mesurables

@@ -3,19 +3,28 @@ indicateur: 11
 critere: 3
 critere_titre: "L’adaptation aux publics bénéficiaires des prestations et des modalités d’accueil, d’accompagnement, de suivi et d’évaluation mises en œuvre"
 slug: evaluation-atteinte-objectifs
+type: commun
+categories: [toutes]
 ponderation: majeure uniquement
 nouveaux_entrants: oui
 sous_traitance: non concerne
-source: "Guide de lecture du Référentiel national qualité — V9 du 8 janvier 2024, DGEFP, Ministère du Travail."
+version: V10
+source: "Guide de lecture du Référentiel national qualité — V10 de novembre 2026, DGEFP, Ministère du Travail et des Solidarités."
 ---
 
 # Indicateur 11
 
 > Critère 3 — L’adaptation aux publics bénéficiaires des prestations et des modalités d’accueil, d’accompagnement, de suivi et d’évaluation mises en œuvre
+>
+> *Indicateur commun d’appréciation*
 
 ## Énoncé
 
 Le prestataire évalue l’atteinte par les publics bénéficiaires des objectifs de la prestation.
+
+## Niveau attendu
+
+Démontrer qu’un processus d’évaluation existe, est formalisé et mis en œuvre. Il permet d’apprécier l’atteinte des objectifs.
 
 ## Exemples de preuves
 

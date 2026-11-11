@@ -3,19 +3,28 @@ indicateur: 18
 critere: 4
 critere_titre: "L’adéquation des moyens pédagogiques, techniques et d’encadrement aux prestations mises en œuvre"
 slug: coordination-intervenants
+type: commun
+categories: [toutes]
 ponderation: mineure ou majeure
 nouveaux_entrants: non
 sous_traitance: non concerne
-source: "Guide de lecture du Référentiel national qualité — V9 du 8 janvier 2024, DGEFP, Ministère du Travail."
+version: V10
+source: "Guide de lecture du Référentiel national qualité — V10 de novembre 2026, DGEFP, Ministère du Travail et des Solidarités."
 ---
 
 # Indicateur 18
 
 > Critère 4 — L’adéquation des moyens pédagogiques, techniques et d’encadrement aux prestations mises en œuvre
+>
+> *Indicateur commun d’appréciation*
 
 ## Énoncé
 
 Le prestataire mobilise et coordonne les différents intervenants internes et/ou externes (pédagogiques, administratifs, logistiques, commerciaux…).
+
+## Niveau attendu
+
+Le prestataire identifie, selon les fonctions nécessaires aux prestations, les intervenants dont il assure la coordination.
 
 ## Exemples de preuves
 
@@ -30,3 +39,11 @@ Dans l’échantillon audité, une non-conformité mineure est caractérisée pa
 ## Obligations spécifiques
 
 VAE : les intervenants externes ne sont ni les certificateurs ni les financeurs.
+
+## Glossaire
+
+**Intervenants internes** : dirigeants et salariés intervenant dans le cadre d’un contrat de travail (dont formateurs occasionnels).
+
+**Intervenants externes** : tous les sous-traitants intervenant dans le cadre d’un contrat de prestation de service.
+
+**Mobiliser les intervenants** : capacité à impliquer les intervenants en fonction des besoins de la prestation.

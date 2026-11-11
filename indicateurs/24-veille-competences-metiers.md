@@ -3,15 +3,20 @@ indicateur: 24
 critere: 6
 critere_titre: "L’inscription et l’investissement du prestataire dans son environnement professionnel"
 slug: veille-competences-metiers
+type: commun
+categories: [toutes]
 ponderation: mineure ou majeure
 nouveaux_entrants: oui
 sous_traitance: non concerne
-source: "Guide de lecture du Référentiel national qualité — V9 du 8 janvier 2024, DGEFP, Ministère du Travail."
+version: V10
+source: "Guide de lecture du Référentiel national qualité — V10 de novembre 2026, DGEFP, Ministère du Travail et des Solidarités."
 ---
 
 # Indicateur 24
 
 > Critère 6 — L’inscription et l’investissement du prestataire dans son environnement professionnel
+>
+> *Indicateur commun d’appréciation*
 
 ## Énoncé
 
